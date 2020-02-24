@@ -1,0 +1,1328 @@
+<html>
+    <head>
+        <title>Croquet Webstrates</title>
+        <link rel="shortcut icon" href="icon.png" type="image/x-icon" />
+
+        <!-- https://croquet.studio/sdk/docs/index.html -->
+        <script src="https://croquet.studio/sdk/croquet-latest.min.js"></script>
+        
+        <!-- https://github.com/google/diff-match-patch -->
+        <script src="./diff-match-patch.js"></script>
+    </head>
+
+    <body>
+        <h1 style="color: red;">Croquet Webstrates</h1>
+    </body>
+
+    <script type="module">
+        // https://threejs.org/docs/#api/en/core/EventDispatcher
+        import {EventDispatcher} from "./node_modules/three/src/core/EventDispatcher.js";
+        
+        // https://threejs.org/docs/#api/en/math/MathUtils
+        import {MathUtils} from "./node_modules/three/src/math/MathUtils.js";
+
+        // https://croquet.studio/sdk/docs/Model.html
+        class Model extends Croquet.Model {
+            init() {
+                super.init();
+            }
+        }
+        Model.register();
+
+
+        // https://croquet.studio/sdk/docs/View.html
+        class View extends Croquet.View {
+            constructor(model) {
+                super(model);
+
+                this.model = model;
+                window.view = this;
+
+
+
+                // CORE EVENTS
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreEvents.js
+                
+                // https://threejs.org/docs/#api/en/core/EventDispatcher
+                Object.assign(this, EventDispatcher.prototype);
+
+
+
+                // CORE UTILS
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js
+                
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L10
+                this.searchParams = new URL(location.href).searchParams;
+                this.config = {
+                    test : this.searchParams.get("test"),
+                };
+
+                //this.croquetIdMap = new Map(); // croquetId => element
+
+                
+
+                // CORE MUTATION
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L19
+                this.mutationObserver = new MutationObserver(this.mutationObserverCallback.bind(this));
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L18
+                this.rootElement = null;
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L119
+                this.isMutationObserverPaused = false;
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L9
+                this.mutationObserverOptions = {
+                    childList: true,
+                    subtree: true,
+                    attributes: true,
+                    characterData: true,
+                    attributeOldValue: true,
+                    characterDataOldValue: true
+                };
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L20
+                this.documentFragmentMutationObserverMap = new Map(); // documentFragment => {mutationObserver, parentElement}
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L99
+                this.addEventListener("DOMNodeInserted", event => {
+                    const {addedNode} = event.message;
+                    this.forEachElement(addedNode, node => {
+                        if(this.isDocumentFragment(node.content))
+                            this.addDocumentFragmentMutationObserver(node.content, node);
+                    });
+                });
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L107
+                this.addEventListener("DOMNodeDeleted", event => {
+                    const {removedNode} = event.message;
+                    this.forEachElement(removedNode, node => {
+                        if(this.isDocumentFragment(node.content))
+                            this.removeDocumentFragmentMutationObserver(node.content);
+                    });
+                });
+
+
+
+
+                // CORE PATHTREE
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L25
+                this.uuidRadix = 16;
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L40
+                let thisView = this;
+                class PathObserver {
+                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L91
+                    static areConstructorArgumentsValid(node, parentPathObserver, overwrite) {
+                        return thisView.canElementBeObserved(node) && (parentPathObserver || node == document.documentElement)
+                    }
+
+                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L88
+                    static create() { // could probably just use the constructor directly without this - depends on how it's used
+                        return this.areConstructorArgumentsValid(...arguments)?
+                            new this(...arguments) :
+                            undefined;
+                    }
+
+                    constructor(node, parentPathObserver, overwriteExistingPathObserver = false) {
+                        // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L88
+
+                        this.id = thisView.generateUUID(); // necessary?
+                        this.children = [];
+                        this.parent = parentPathObserver;
+                        this.node = node;
+
+                        if(overwriteExistingPathObserver || !thisView.PathObserver.map.has(node))
+                            thisView.PathObserver.map.set(node, [this]);
+                        else
+                            thisView.PathObserver.map.get(node).push(this);
+                        
+                        const childNodes = PathObserver.getChildNodesOrContentChildNodes(node);
+
+                        childNodes.forEach(childNode => {
+                            const childPathObserver = PathObserver.create(childNode, this, overwriteExistingPathObserver);
+                            if(childPathObserver)
+                                this.children.push(childPathObserver);
+                        });
+                    }
+
+                    static getChildNodesOrContentChildNodes(node) {
+                        let childNodes = [];
+
+                        if(node.hasChildNodes())
+                            childNodes = node.childNodes;
+                        else if(node.content) // can also use thisView.isDocumentFragment(node.content)
+                            childNodes = node.content.childNodes;
+
+                        return Array.from(childNodes);
+                    }
+
+                    static doesNodeHaveExistingPathObservers(node) {
+                        return this.PathObserver.map.has(node) && (this.PathObserver.map.get(node).length > 0)
+                    }
+
+                    getSiblingIndex() {
+                        return this.parent.children.indexOf(this);
+                    }
+
+                    getNodePathObservers() {
+                        return thisView.PathObserver.map.get(this.node);
+                    }
+                    getNodePathObserverIndex() {
+                        return this.getNodePathObservers.indexOf(this);
+                    }
+
+                    get isRoot() {
+                        return !this.parent;
+                    }
+
+                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L101
+                    getPath() {
+                        if(this.isRoot) {
+                            return [];
+                        }
+                        else {
+                            const siblingIndex = this.getSiblingIndex();
+                            return [...this.parent.getPath(), siblingIndex + thisView.jsonMLConstants.ELEMENT_LIST_OFFSET];
+                        }
+                    }
+
+                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L121
+                    remove() {
+                        const siblingIndex = this.getSiblingIndex();
+                        this.parent.children.splice(siblingIndex, 1);
+                        delete this.parent;
+
+                        this.getNodePathObservers.splice(this.getNodePathObserverIndex(), 1);
+                        delete this.node;
+
+                        this.children.forEach(child => child.remove());
+                        delete this.children;
+                    }
+
+                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L146
+                    validate() {
+                        const nodePathObservers = getNodePathObservers();
+                        if(nodePathObservers.length == 1) {
+                            if(nodePathObservers.includes(this)) {
+                                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L160
+                                const childNodes = PathObserver.getChildNodesOrContentChildNodes(this.node);
+                                const childNodesWithPathObservers = childNodes.filter(childNode => {
+                                    return PathObserver.map.has(childNode) && (PathObserver.map.get(childNode).length > 0);
+                                });
+
+                                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L174
+                                if(childNodesWithPathObservers.length == this.children.length) {
+                                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L180
+                                    const childNodesThatAreNotObservableOrAreDescendantsOfTemplates = childNodes.filter(childNode => {
+                                        return !thisView.canElementBeObserved(childNode);
+                                    });
+
+                                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L186
+                                    if(childNodesWithPathObservers.length == childNodesThatAreNotObservableOrAreDescendantsOfTemplates.length) {
+                                        console.warn(`found zombie nodes in DOM`);
+                                    }
+
+                                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L191
+                                    this.children.forEach(childPathObserver => {
+                                        childPathObserver.validate();
+                                    });
+                                }
+                                else {
+                                    throw `different amounts of children`;
+                                }
+                            }
+                            else {
+                                throw `path observer isn't observing`;
+                            }
+                        }
+                        else if(nodePathObservers.length > 1) {
+                            throw `node has too many path observers`;
+                        }
+                        else {
+                            throw `node has no path observers`;
+                        }
+                    }
+
+                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L206
+                    static getPathObserverByElement(element, parentElement) {
+                        if(this.map.has(element)) {
+                            if(this.map.has(parentElement)) {
+                                const pathObservers = this.map.get(element);
+                                const parentPathObservers = this.map.get(parentElement);
+                                return pathObservers.find(pathObserver => {
+                                    return parentPathObservers.includes(pathObserver.parent);
+                                });
+                            }
+                            else {
+                                const pathObservers = this.map.get(element);
+                                const lastPathObserver = pathObservers[pathObservers.length-1];
+                                return lastPathObserver;
+                            }
+                        }
+                        else {
+                            return;
+                        }
+                    }
+
+                    // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L242
+                    static getElementAtPath(rootElementOrRootPathObserver, jsonMLPath) {
+                        const rootPathObserver = (rootElementOrRootPathObserver instanceof PathObserver)?
+                            rootPathObserver :
+                            this.getPathObserverByElement(rootElementOrRootPathObserver);
+
+                        const jsonMLIndex = jsonMLPath[0];
+                        if(jsonMLIndex == thisView.jsonMLConstants.ATTRIBUTE_INDEX) {
+                            return {
+                                element : parentElement,
+                                childIndex : undefined,
+                                parentElement,
+                                jsonMLIndex,
+                            };
+                        }
+                        else {
+                            const childIndex = jsonMLIndex + thisView.jsonMLIndex.ELEMENT_LIST_OFFSET;
+                            const childPathObserver = rootPathObserver.children[childIndex];
+                            
+                            const nextJsonMLIndex = jsonMLPath[1];
+                            if(path.length == 1 || nextJsonMLIndex == thisView.jsonMLConstants.TAG_NAME_INDEX || thisView.jsonMLConstants.ATTRIBUTE_INDEX) {
+                                const childElement = childPathObserver.node;
+                                const parentElement = rootPathObserver.node;
+                                return {
+                                    element : childElement,
+                                    childIndex,
+                                    parentElement,
+                                    jsonMLIndex : nextJsonMLIndex,
+                                }
+                            }
+                            else {
+                                return PathObserver.getElementAtPath(childPathObserver, jsonMLPath.slice(1));
+                            }
+                        }
+                    }
+                }
+                PathObserver.map = new Map(); // node => [...pathObservers]
+                this.PathObserver = PathObserver;
+
+
+
+                // CORE JSON ML
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreJsonML.js
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L225
+                this.jsonMLConstants = {
+                    TAG_NAME_INDEX: 0,
+                    ATTRIBUTE_INDEX: 1,
+                    ELEMENT_LIST_OFFSET: 2
+                };
+
+
+
+                // CORE OP CREATOR
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js
+
+                // https://github.com/google/diff-match-patch/wiki/API#initialization
+                // https://github.com/google/diff-match-patch/wiki/Language:-JavaScript
+                this.diffMatchPatch = new diff_match_patch();
+
+
+
+                // CORE OP APPLIER
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpApplier.js
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L459
+                this.addEventListener("DOMNodeInserted", event => {
+                    const {isLocal, addedNode} = event.message;
+                    if(!isLocal) {
+                        this.initializeElement(addedNode);
+                    }
+                });
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L464
+                this.addEventListener("DOMNodeDeleted", event => {
+                    const {isLocal, removedNode} = event.message;
+                    const croquetId = this.getElementCroquetId(removedNode);
+                    if(croquetId) {
+                        this.removeCroquetIdFromElement(croquetId);
+                    }
+                });
+
+                this.throttledEventDispatcherMap = new Map(); // element|attribute => throttleFunction
+                this.throttledComposeOperationsMap = new Map(); // element|attribute => throttleFunction
+                this.composedOperationsMap = new Map(); // element|attribute => composedOperation
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L335
+                this.addEventListener("mutation", event => {
+                    const {mutation} = event;
+                    const {target} = mutation;
+
+                    const targetPathObserver = this.PathObserver.getPathObserverByElement(target);
+                    const targetElement = (target.nodeType == document.ELEMENT_NODE)?
+                        target :
+                        target.parentElement;
+                    
+                    const targetElementPathObserver = this.PathObserver.getPathObserverByElement(targetElement);
+
+                    let operations = [];
+                    switch(mutation.type) {
+                        case "attributes":
+                            operations = this.getAttributeMutationOperations(mutation, targetPathObserver);
+                            break;
+                        case "characterData":
+                            operations = this.getCharacterDataMutationOperations(mutation, targetPathObserver);
+                            break;
+                        case "childList":
+                            operations = this.getChildListMutationOperations(mutation, targetPathObserver);
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if(operations.length > 0) {
+                        if(targetElement.hasAttribute("data-croquet-throttle")) {
+                            const throttleDelayMinimum = Number(targetElement.dataset.throttle) || 0;
+                            if(!this.throttledEventDispatcherMap.has(targetElement)) {
+                                const throttledFunction = this.throttleFunction(this.dispatchEvent, throttleDelayMinimum);
+                                this.throttledEventDispatcherMap.set(targetElement, throttledFunction);
+                            }
+                            this.throttledEventDispatcherMap.get(targetElement)({
+                                type : "created-operations",
+                                message : {operations},
+                            });
+                        }
+                        else {
+                            if(this.throttledEventDispatcherMap.has(targetElement))
+                                this.throttledEventDispatcherMap.delete(targetElement);
+                            
+                            if(targetElement.hasAttribute("data-croquet-throttle-operation-compose")) {
+                                const composeDelayMinimum = Number(targetElement.dataset.operationCompose) || 0;
+                                if(!this.composedOperationsMap.has(targetElement)) {
+                                    this.composedOperationsMap.set(targetElement, operations);
+                                }
+                                else {
+                                    const composedOperations = this.composedOperationsMap.get(targetElement);
+                                    this.composedOperationsMap.set(targetElement, this.composeOperations(composedOperations, operations));
+                                }
+
+                                if(!this.throttledComposeOperationsMap.has(targetElement)) {
+                                    const throttledComposeOperationFunction = this.throttleFunction(this.dispatchEvent, composeDelayMinimum);
+                                    this.throttledComposeOperationsMap.set(targetElement, throttledComposeOperationFunction);
+                                }
+
+                                this.throttledComposeOperationsMap.get(targetElement)({
+                                    type : "created-operations",
+                                    message : {
+                                        operations : this.composedOperationsMap.get(targetElement),
+                                    }
+                                })
+                            }
+                            else {
+                                this.dispatchEvent({
+                                    type: "created-operations",
+                                    message: {operations},
+                                });
+                            }
+                        }
+                    }
+                });
+
+
+
+                // CORE OP APPLIER
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpApplier.js
+
+                // FILL
+            }
+
+            // CORE UTILS
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js
+            
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L54
+            throttleFunction(_function, delayMinimum = 0) {
+                let lastTimeFunctionWasCalled;
+                let timeoutHandle;
+                return function() {
+                    const now = Date.now();
+                    const timeSinceLastFunctionCall = now - lastTimeFunctionWasCalled;
+                    if(timeSinceLastFunctionCall >= delayMinimum) {
+                        _function(...arguments);
+                        lastTimeFunctionWasCalled = now;
+                    }
+                    else {
+                        const remainingDelay = delayMinimum - timeSinceLastFunctionCall;
+                        clearTimeout(timeoutHandle);
+                        timeoutHandle = setTimeout(() => {
+                            _function(...arguments);
+                            lastTimeFunctionWasCalled = Date.now();
+                        }, remainingDelay);
+                    }
+                }
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L79
+            areObjectsEqual(a, b) {
+                
+                // Croquet sometimes re-orders object keys (usually alphabetically), so stringification is not a reliable method
+                //return JSON.stringify(a) === JSON.stringify(b);
+
+
+                // Instead we'll have to traverse the objects
+                if(typeof a == typeof b) {
+                    if(typeof a == "object") {
+                        if(a == null) {
+                            return true;
+                        }
+                        else if(Array.isArray(a)) {
+                            if(a.length == b.length) {
+                                return a.every((aValue, index) => {
+                                    const bValue = b[index];
+                                    return this.areObjectsEqual(aValue, bValue);
+                                });
+                            }
+                            else
+                                return false;
+                        }
+                        else {
+                            const [aKeys, bKeys] = [Object.keys(a), Object.keys(b)];
+                            if(aKeys.length == bKeys.length) {
+                                return aKeys.every(key => {
+                                    const [aValue, bValue] = [a[key], b[key]];
+                                    return this.areObjectsEqual(aValue, bValue);
+                                });
+                            }
+                            else
+                                return false;
+                        }
+                    }
+                    else
+                        return a == b;
+                }
+                else
+                    return false;
+            }
+            
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L87
+            shallowCloneObject(objectOrArray) {
+                if(Array.isArray(objectOrArray)) {
+                    const array = objectOrArray;
+                    return array.slice();
+                }
+                else {
+                    const object = objectOrArray;
+                    return Object.assign({}, object);
+                }
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L95
+            shallowCloneAndFreezeObject(object) {
+                const clone = this.shallowCloneObject(object);
+                return Object.freeze(clone);
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L104
+            random(min, max) {
+                const range = max-min;
+                const interpolation = Math.random();
+                const offset = range * interpolation;
+                return min + offset;
+            }
+            randomInt(min, max) {
+                return Math.floor(this.random(min, max));
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L115
+            randomString(length = 8, alphabet = "23456789abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ") {
+                const alphabetLength = alphabet.length;
+                let randomString = '';
+
+                while(length-- > 0) {
+                    const randomAlphabetIndex = this.randomInt(0, alphabetLength);
+                    const randomCharacter = alphabet[randomAlphabetIndex];
+                    randomString += randomCharacter;
+                }
+
+                return randomString;
+            }
+
+            createCroquetId() {
+                return this.randomString();
+            }
+
+            isDocumentFragment(node) {
+                return node && node.nodeType == document.DOCUMENT_FRAGMENT_NODE;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L131
+            getChildNodes(parentElement) {
+                return (this.isDocumentFragment(parentElement.content))?
+                    parentElement.content.childNodes :
+                    parentElement.childNodes;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L146
+            forEachElement(node, callback, parent = null) {
+                callback(node, parent);
+
+                this.getChildNodes(node).forEach(child => {
+                    this.forEachElement(child, callback, node);
+                });
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L164
+            insertBeforeWithoutExecutingScripts(parentElement, childElement, referenceNode = null) {
+                if(childElement instanceof HTMLElement) {
+                    const scriptMap = new Map(); // <script> => {attributes, innerHTML}
+                    const scripts = (childElement instanceof HTMLScriptElement)?
+                        [childElement] :
+                        [...childElement.querySelectorAll('script')];
+                    
+                    // Temporarily remove script attributes/innerHTML and store them in a Map
+                    scripts.forEach(script => {
+                        const attributes = [];
+                        Array.from(script.attributes).forEach(attribute => {
+                            const {nodeName, nodeValue} = attribute;
+                            attributes.push({nodeName, nodeValue});
+                            script.removeAttribute(nodeName);
+                        });
+
+                        const innerHTML = script.innerHTML;
+                        script.innerHTML = `// Execution prevention`;
+
+                        scriptMap.set(script, {attributes, innerHTML});
+                    });
+
+
+                    // Add scripts
+                    parentElement.insertBefore(childElement, referenceNode);
+
+
+                    // Add attributes/innerHTML back to the scripts
+                    scripts.forEach(script => {
+                        const {attributes, innerHTML} = scriptMap.get(script);
+                        attributes.forEach(attribute => {
+                            const {nodeName, nodeValue} = attribute;
+                            script.setAttribute(nodeName, nodeValue);
+                        });
+                        script.innerHTML = innerHTML;
+                    });
+                }
+                else {
+                    return parentElement.insertBefore(childElement, referenceNode);
+                }
+            }
+            appendChildWithoutExecutingScripts(parentElement, childElement) {
+                this.insertBeforeWithoutExecutingScripts(parentElement, childElement);
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L211
+            executeScripts(scripts, callback) {
+                if(scripts.length > 0) {
+                    const executeNextScripts = (function() {
+                        this.executeScripts(scripts.slice(1), callback);
+                    }).bind(this);
+                    
+                    const script = scripts[0];
+                    if(this.isElementADescendantOfATemplate(script))
+                        executeNextScripts();
+                    else {
+                        const scriptCopy = document.createElement('script');
+                        
+                        const {attributes, innerHTML} = script;
+                        Array.from(attributes).forEach(attribute => {
+                            const {nodeName, nodeValue} = attribute;
+                            scriptCopy.setAttribute(nodeName, nodeValue);
+                        });
+                        scriptCopy.innerHTML = innerHTML;
+
+                        Object.assign(scriptCopy, script);
+                        this.assignCroquetIdToElement(scriptCopy, script);
+
+                        script.parentElement.insertBefore(scriptCopy, script);
+                        script.remove();
+                        
+                        const dontExecuteImmediately = script.hasAttribute("src");
+                        if(dontExecuteImmediately) {
+                            scriptCopy.addEventListener("load", executeNextScripts);
+                            scriptCopy.addEventListener("error", executeNextScripts);
+                        }
+                        else {
+                            executeNextScripts();
+                        }
+                    }
+                }
+                else {
+                    callback();
+                }
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L266
+            isElementADescendantOfATemplate(element) {
+                return document.documentElement.ownerDocument !== element.ownerDocument;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L274
+            isEmbedded() {
+                return window.frameElement && window.parent !== window;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L283
+            hasSameParentDomain() {
+                const a = document.createElement('a');
+                a.href = document.referrer;
+                return a.host === location.host;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L295
+            sanitizeString(string) {
+                const startCharacterRegex = /:|[A-Z]|_|[a-z]/;
+                const anyCharacterRegex = /-|\.|[0-9]|:|[A-Z]|_|[a-z]/;
+
+                const characters = string.split('');
+                const sanitizedCharacters = characters.map((character, index) => {
+                    const characterRegex = (index == 0)?
+                        startCharacterRegex :
+                        anyCharacterRegex;
+
+                    const isAValidCharacter = characterRegex.test(character);
+                    return isAValidCharacter?
+                        character :
+                        '_';
+                });
+
+                const sanitizedString = sanitizedCharacters.join('');
+                return sanitizedString;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L317
+            escapeString(string, characters = [`&`, `"`]) {
+                let escapedString = string;
+                    escapedString = escapedString.replace(/&/g, '&amp;');
+                    escapedString = escapedString.replace(/"/g, '&quot;');
+                return escapedString;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L325
+            unescapeString(string) {
+                let unescapedString = string;
+                    unescapedString = unescapedString.replace(/&amp;/g, '&');
+                    unescapedString = unescapedString.replace(/&quot;/g, '"');
+                return unescapedString;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L333
+            escapeDots() {
+                let escapedString = string;
+                    escapedString = escapedString.replace(/./g, '&dot;');
+                return escapedString;            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L341
+            unescapeDots() {
+                let unescapedString = string;
+                    unescapedString = unescapedString.replace(/&dot;/g, '.');
+                return unescapedString;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L350
+            assignCroquetIdToElement(node, nodeOrCroquetId) {
+                const croquetId = (typeof nodeOrCroquetId == "string")?
+                    nodeOrCroquetId :
+                    nodeOrCroquetId.dataset.croquetId;
+
+                node.dataset.croquetId = croquetId;
+
+                /*
+                this.croquetIdMap.set(croquetId, node);
+                
+                Object.defineProperty(node, '__croquetId', {
+                    value: croquetId,
+                    writable: false,
+                    enumerable: true,
+                    configurable: true,
+                });
+                */
+            }
+
+            getElementCroquetId(node) {
+                return node.dataset.croquetId;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L365
+            removeCroquetIdFromElement(croquetId) {
+                const element = this.getElementByCroquetId(croquetId);
+                if(element !== null)
+                    delete element.dataset.croquetId;
+
+                //this.croquetIdMap.delete(croquetId);
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreUtils.js#L373
+            getElementByCroquetId(croquetId) {
+                return document.querySelector(`[croquet-id="${croquetId}"]`);
+                
+                //this.croquetIdMap.get(croquetId);
+            }
+
+
+
+            // CORE MUTATION
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L23
+            set mutationObserverRoot(mutationObserverRoot) {
+                this._mutationObserverRoot = mutationObserverRoot;
+                this.mutationObserver.observe(this.mutationObserverRoot, this.mutationObserverOptions);
+                this.elementForEach(this.mutationObserverRoot, node => {
+                    if(this.isDocumentFragment(node.content))
+                        this.addDocumentFragmentMutationObserver(node.content, node);
+                });
+            }
+            get mutationObserverRoot() {
+                return this._mutationObserverRoot;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L36
+            mutationObserverCallback(mutations, observer) {
+                mutations.forEach(mutation => {
+                    if(this.isDocumentFragment(mutation.target)) {
+                        Object.defineProperty(mutation, 'target', {
+                            value : this.documentFragmentMutationObserverMap.get(mutation.target),
+                        });
+                    }
+
+                    this.dispatchEvent({
+                        type : "mutation",
+                        message : {
+                            mutation
+                        },
+                    });
+                });
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L61
+            addDocumentFragmentMutationObserver(documentFragment, element) {
+                if(!this.documentFragmentMutationObserverMap.has(documentFragment)) {
+                    const mutationObserver = new MutationObserver(this.mutationObserverCallback);
+                    mutationObserver.observe(documentFragment, this.mutationObserverOptions);
+                    this.documentFragmentMutationObserverMap.set(documentFragment, {
+                        mutationObserver,
+                        element,
+                    });
+                }
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L77
+            removedocumentFragmentMutationObserver(documentFragment) {
+                if(this.documentFragmentMutationObserverMap.has(documentFragment)) {
+                    const {mutationObserver, element} = this.documentFragmentMutationObserverMap.get(documentFragment);
+                    mutationObserver.disconnect();
+                    this.documentFragmentMutationObserverMap.delete(documentFragment);
+                }
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L125
+            pauseMutationObserver() {
+                if(!this.isMutationObserverPaused) {
+                    this.mutationObserver.disconnect();
+
+                    this.documentFragmentMutationObserverMap.forEach((value, documentFragment) => {
+                        const {mutationObserver, element} = value;
+                        mutationObserver.disconnect();
+                    });
+                    
+                    this.isMutationObserverPaused = true;
+                }
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreMutation.js#L135
+            resumeMutationObserver() {
+                if(this.isMutationObserverPaused) {
+                    this.mutationObserver.observe(this.rootElement, this.mutationObserverOptions);
+
+                    this.documentFragmentMutationObserverMap.forEach((value, documentFragment) => {
+                        const {mutationObserver, element} = value;
+                        mutationObserver.observe(documentFragment, this.mutationObserverOptions);
+                    });
+
+                    this.isMutationObserverPaused = false;
+                }
+            }
+
+
+            // CORE PATHREE
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js
+
+            // https://github.com/Webstrates/Webstrates/blob/df1488e06310d88d4352ca34f00d619030cc389f/client/webstrates/corePathTree.js#L23
+            generateUUID() {
+                // https://threejs.org/docs/#api/en/math/MathUtils.generateUUID
+                return MathUtils.generateUUID();
+                
+                /*
+                const templateString = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx";
+                const uuid = templateString.replace(/[xy]/g, templateCharacter => {
+                    let digitIndex = this.randomInt(0, this.uuidRadix);
+                    
+                    if(templateCharacter == 'y') {
+                        digitIndex &= 0x3; // only keep the first 2 bits (1111 => 0011)
+                        digitIndex |= 0x8; // set the 4th bit to 1 (0000 => 1000)
+                    }
+
+                    const digit = digitIndex.toString(this.uuidRadix);
+                    return digit;
+                });
+                return uuid;
+                */
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/corePathTree.js#L72
+            canElementBeObserved(element) {
+                return (element.nodeType !== document.ELEMENT_NODE) || !element.dataset.hasOwnProperty("croquetIgnore") || this.isElementADescendantOfATemplate(element);
+            }
+
+            canAttributeBeObserved(attributeName) {
+                return !attributeName.includes("data-croquet-ignore");
+            }
+
+
+
+
+            // CORE JSONML
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreJsonML.js
+            // https://webstrates.github.io/developerguide/how-it-works.html#jsonml
+
+            // can also look at Tree-Mirror:
+            // https://github.com/nardeas/treemirror/blob/master/src/tree-mirror.js
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreJsonML.js#L156
+            htmlToJsonML(node) { // [tagName, properties, ...children]
+                if(this.PathObserver.map.has(node) && this.PathObserver.map.get(node).length > 0) {
+                    const jsonMLPath = [];
+                    const jsonMLObject = {
+                        tagName : node.tagName || '',
+                        properties : {},
+                        children : [],
+                        
+                        getPath() {
+                            return [this.tagName, this.properties, ...this.children];
+                        },
+                    };
+                    
+                    switch(node.nodeType) {
+                        case document.ELEMENT_NODE:
+                        case document.DOCUMENT_NODE:
+                        case document.DOCUMENT_FRAGMENT_NODE:
+                            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreJsonML.js#L169
+                            
+                            const attributes = Array.from(node.attributes);
+                            attributes.forEach(attribute => {
+                                if(this.canAttributeBeObserved(attributeName)) {
+                                    if(attribute.name == "style") {
+                                        jsonMLObject.properties.style = node.style.cssText;
+                                    }
+                                    else
+                                        jsonMLObject.properties[attribute.name] = attribute.value;
+                                }
+                            });
+
+                            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreJsonML.js#L202
+                            switch(node.tagName) {
+                                case "FRAME":
+                                case "IFRAME":
+                                    break;
+                                case "STYLE":
+                                    jsonMLObject.children.push(node.innerText);
+                                    break;
+                                case "INPUT":
+                                    if(node.type !== "password")
+                                        jsonMLObject.properties.value = node.value;
+
+                                    this.getChildNodes(node).forEach(childNode => {
+                                        const childJsonMLPath = this.htmlToJsonML(childNode);
+                                        jsonMLObject.children.push(childJsonMLPath);
+                                    });
+                                    break;
+                                case "TEXTAREA":
+                                    jsonMLObject.properties.value = node.value;
+
+                                    this.getChildNodes(node).forEach(childNode => {
+                                        const childJsonMLPath = this.htmlToJsonML(childNode);
+                                        jsonMLObject.children.push(childJsonMLPath);
+                                    });
+                                    break;
+                                default:
+                                    this.getChildNodes(node).forEach(childNode => {
+                                        const childJsonMLPath = this.htmlToJsonML(childNode);
+                                        jsonMLObject.children.push(childJsonMLPath);
+                                    });
+                                    break;
+                            }
+                            break;
+                        case Node.TEXT_NODE:
+                        case Node.CDATA_SECTION_NODE:
+                            return node.nodeValue;
+                            break;
+                        case Node.DOCUMENT_TYPE_NODE:
+                            break;
+                        case Node.COMMENT_NODE:
+                            jsonMLObject.tagName = "COMMENT";
+                            jsonMLObject.children.push(node.nodeValue);
+                            break;
+                        default:
+                            break;
+                    }
+                    return jsonMLObject.getPath();
+                }
+                else {
+                    return;
+                }
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreJsonML.js#L22
+            jsonMLToHTML(jsonMLPathOrNodeValue, scripts = []) {
+                const documentFragment = document.createDocumentFragment();
+
+                if(Array.isArray(jsonMLPathOrNodeValue)) {
+                    const jsonMLPath = jsonMLPathOrNodeValue;
+                    const tagName = jsonMLPath[0];
+
+                    if(tagName == "COMMENT") {
+                        const commentText = jsonMLPath[2];
+                        const comment = document.createComment(commentText);
+                        return comment;
+                    }
+                    else {
+                        const element = document.createElement(tagName);
+                        
+                        const [attributes, ...children] = jsonMLPath.slice(1);
+                        for(let attributeName in attributes) {
+                            const value = attributes[attributeName];
+                            element.setAttribute(attributeName, value);
+                        }
+    
+                        if(tagName == "SCRIPT") {
+                            element.async = false;
+                            scripts.push(element);
+                        }
+    
+                        children.forEach(child => {
+                            documentFragment.appendChild(this.jsonMLToHTML(child, scripts));
+                        });
+    
+                        if(element.content && element.content.nodeType == document.DOCUMENT_FRAGMENT_NODE) {
+                            element.content.appendChild(documentFragment);
+                        }
+                        else {
+                            element.appendChild(documentFragment);
+                        }
+    
+                        return element;
+                    }
+                }
+                else {
+                    const nodeValue = jsonMLPathOrNodeValue;
+                    const textNode = document.createTextNode(nodeValue);
+                    return textNode;
+                }
+            }
+
+
+
+            // CORE OP CREATOR
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L39
+            getOperations(jsonMLPath, oldValue, newValue) {
+                // https://github.com/google/diff-match-patch/wiki/API#patch_maketext1-text2--patches
+                const operations = [];
+                
+                const patches = this.diffMatchPatch.patch_make(oldValue, newValue);
+                patches.forEach(patch => {
+                    let stringOffset = patch.start1;
+
+                    patch.diffs.forEach(diff => {
+                        const type = diff[0];
+                        const string = diff[1];
+                        
+                        switch(type) {
+                            case DIFF_DELETE:
+                                operations.push({
+                                    sd: string,
+                                    p: [...jsonMLPath, stringOffset],
+                                });
+                                break;
+                            case DIFF_EQUAL:
+                                stringOffset += string.length;
+                                break;
+                            case DIFF_INSERT:
+                                operations.push({
+                                    si: string,
+                                    p: [...jsonMLPath, stringOffset],
+                                });
+                                break;
+                            default:
+                                throw `undefined diff-match-patch type ${type}`;
+                                break;
+                        }
+                    });
+                });
+
+                return operations;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L71
+            getAttributeMutationOperations(mutation, pathObserver) {
+                const {attributeName} = mutation;
+                if(this.canAttributeBeObserved(attributeName)) {
+                    const {oldValue} = mutation;
+                    const newValue = mutation.target.getAttribute(attributeName);
+                    
+                    
+                    const _jsonMLPath = pathObserver.getPath();
+                    const jsonMLPath = [..._jsonMLPath, this.jsonMLConstants.ATTRIBUTE_INDEX];
+                    
+                    jsonMLPath.push(attributeName);
+
+                    if(newValue == null) {
+                        this.dispatchEvent({
+                            type: "DOMAttributeRemoved",
+                            message: {
+                                target: mutation.target,
+                                attributeName,
+                                oldValue, newValue,
+                                isLocal: true,
+                            }
+                        });
+
+                        return [
+                            {
+                                od: oldValue,
+                                p: path,
+                            },
+                        ];
+                    }
+                    else if(false) {
+                        // accessing a copy of the JSONML in the model (this.model.jsonML)
+                        // you can compare newValue with the current value in the model
+                        // refer to Core Database .elementAtPath
+                        // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreDatabase.js#L34
+                    }
+                    else {
+                        let operations = [];
+                        
+                        if(oldValue == null) {
+                            operations = [{
+                                od: oldValue,
+                                oi: newValue,
+                                p: path,
+                            }];
+                        }
+                        else {
+                            operations = this.getOperations(jsonMLPath, oldValue, newValue);
+                        }
+
+                        this.dispatchEvent({
+                            type: "DOMAttributeSet",
+                            message: {
+                                target: mutation.target,
+                                attributeName,
+                                oldValue, newValue,
+                                isLocal: true,
+                            },
+                        });
+
+                        return operations;
+                    }
+                }
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L123
+            getCharacterDataMutationOperations(mutation, pathObserver) {
+                let operations = [];
+
+                const jsonMLPath = pathObserver.getPath();
+
+                // the newValue is stored in element.data
+                let newValue, oldValue;
+                let elementFromModel;
+                
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L147
+                if(mutation.target.parentElement.hasAttribute("data-croquet-throttle-operation-compose")) {
+                    // save the newValue to .futureContents
+                }
+
+                operations = this.getOperations(jsonMLPath, oldValue, newValue);
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L153
+                if(mutation.target.nodeType == docment.COMMENT_NODE) {
+                    const firstOperationPath = operations[0].p;
+                    firstOperationPath.splice(firstOperationPath.length-1, 0, 1);
+                }
+
+                operations.forEach(operation => {
+                    const characterIndex = operation.p[operation.p.length-1];
+                    let type, value;
+
+                    if('si' in operation) {
+                        type = "DOMTextNodeInsertion";
+                        value = op.si;
+                    } else if('sd' in operation) {
+                        type = "DOMTextNodeDeletion";
+                        value = op.sd;
+                    } else if('od' in operation) {
+                        type = "DOMNodeDeleted";
+                        value = op.od;
+                    } else if('oi' in operation) {
+                        type = "DOMNodeInserted";
+                        value = op.oi;
+                    }
+
+                    const event = {
+                        type,
+                        message: {
+                            target: mutation.target,
+                            parentElement: mutation.target.parentElement,
+                            characterIndex,
+                            value,
+                            isLocal: true,
+                        },
+                    };
+
+                    this.dispatchEvent(event);
+                });
+
+                return operations;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L190
+            getChildListMutationOperations(mutation, pathObserver) {
+                const operations = [];
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L193
+                Array.from(mutation.addedNodes).forEach(addedNode => {
+                    const parentNode = mutation.target;
+                    const addedPathObserver = this.PathObserver.getPathObserverByElement(addedNode, parentNode);
+
+                    // we don't need to sanitize the DOM
+
+                    const newAddedPathObserver = this.PathObserver.create(addedNode, targetPathObserver);
+                    if(newAddedPathObserver) {
+                        // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L284
+                        
+                        let previousSibling, previousSiblingPathObserver;
+                        do {
+                            previousSibling = previousSibling.previousSibling;
+                            previousSiblingPathObserver = this.PathObserver.getPathObserverByElement(previousSibling, parentNode);
+                        } while (previousSibling && !previousSiblingPathObserver)
+
+                        if(previousSibling) {
+                            const previousSiblingIndex = targetPathObserver.children.indexOf(previousSiblingPathObserver);
+                            targetPathObserver.children.splice(previousSiblingIndex+1, 0, newAddedPathObserver);
+                        } else if(addedNode.nextSibling) {
+                            targetPathObserver.children.unshift(newAddedPathObserver);
+                        } else {
+                            targetPathObserver.children.push(newAddedPathObserver);
+                        }
+
+                        const jsonMLPath = this.PathObserver.getPathObserverByElement(addedNode, parentNode).getPath();
+                        const operation = {
+                            li: this.htmlToJsonML(addedNode),
+                            p: jsonMLPath,
+                        };
+                        operations.push(operation);
+
+                        this.dispatchEvent({
+                            type: "DOMNodeInserted",
+                            message: {
+                                target: mutation.target,
+                                addedNode,
+                                isLocal: true,
+                            }
+                        })
+                    }
+                    else {
+                        this.dispatchEvent({
+                            type: "DOMNodeInserted",
+                            message: {
+                                addedNode,
+                                target: mutation.target,
+                                isLocal: true,
+                            }
+                        });
+                    }
+                });
+
+                // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L306
+                Array.from(mutation.removedNodes).forEach(removedNode => {
+                    const pathObserver = this.PathObserver.getPathObserverByElement(removedNode, mutation.target);
+
+                    if(pathObserver) {
+                        const jsonMLPath = pathObserver.getPath();
+                        pathObserver.remove();
+                        
+                        // get element from this.model.jsonML
+                        let elementFromModelAtJsonMLPath;
+                        const operation = {
+                            ld: elementFromModelAtJsonMLPath,
+                            p: jsonMLPath,
+                        };
+                        operations.push(operation);
+                    }
+
+                    this.dispatchEvent({
+                        type: "DOMNodeDeleted",
+                        message: {
+                            removedNode,
+                            target: mutation.target,
+                            isLocal: true,
+                        },
+                    });
+                });
+
+               return operations;
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L421
+            initializeElement(node) {
+                if(node.nodeType == document.ELEMENT_NODE && !this.getElementCroquetId(node)) {
+                    const pathObserver = this.getPathObserverByElement(node);
+                    if(pathObserver) {
+                        const path = pathObserver.getPath();
+                        const croquetId = this.createCroquetId();
+                        this.assignCroquetIdToElement(node, croquetId);
+
+                        const operation = [
+                            {
+                                oi: croquetId,
+                                p: [...jsonMLPath, this.jsonMLConstants.ATTRIBUTE_INDEX, "data-croquet-id"],
+                            },
+                        ];
+                        this.dispatchEvent({
+                            type : "createdOperation",
+                            message : {operation},
+                        });
+                    }
+                }
+            }
+            
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L455
+            validateCroquetIds(rootNode) {
+                this.forEachElement(rootNode, node => this.initializeElement(node));
+            }
+
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpCreator.js#L391
+            composeOperations(operations) {
+                // Just returns the last operation
+                return operations[operations.length-1];
+            }
+
+
+
+            // CORE OP APPLIER
+            // https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpApplier.js
+        }
+
+        Croquet.startSession("croquet-webstrates", Model, View);
+    </script>
+</html>

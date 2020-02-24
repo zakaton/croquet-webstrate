@@ -1,0 +1,40 @@
+Use Treewalker to address documentFragments and text nodes
+Use Tree.js EventDispatcher and GenerateUUID for element ids
+put all data in .dataSet.croquet* for transience, event filters, etc
+EventDispatcher for view receiving remote events
+dispatch events onto elements with 
+use XPath instead of JSONML
+use Map objects in view - elements only contain id's
+Treat like Three.js, where all objects have a UUID
+can put initial HTML in model
+config in searchParams
+Croquet elements are just web components with eventlisteners and stuff
+events are mainly mutations and value changes (differential stack)
+can index the differences and "revert" using a searchParam
+don't build page in constructor (rejoining session), unless you can know
+method to "step forward" in simulation, or even "apply" mutations to an element as the root
+methods to 'step' and "go up to named step" or filter events (dataset values can prevent input from relaying, or from incoming mutations from being applied)
+opaque "croquet elements" can update in their own way
+method to 'start' if you don't wanna start immediately (like joining a call)
+can apply just to a single element, e.g. a canvas for drawing applications
+an <input> can have "input" events for a simple-peer place to send signal data
+an opaque <croquet> element can communicate via changing attributes (as opposed to iframe query params)
+stack in model to ensure each event is fully processed in order (to prevent 2 conflicing events where one starts before the other finishes), which may void an event
+storing uuids in model that map to values?
+storing map in model that map uuid's to children (and node data)
+like storing a data structure in the model and users can modify it
+do we need to remember paths? Just know the uuid of the nodes involved...
+how to "fork" sessions, like templates (can start sesion, listen up to step s, then ignore future events?...and close session?)
+croquet elements to stream, send files, fork (template code to refer to current step)
+can specify events to relay or not relay (data-croquet-send-all)
+classes for jsonML and Operations
+Like hyperlinks with anchor tags, but for specific elements (url/element), like a searchParam
+    can open page or iframe to speciifc element
+    pointers to elements can help - treat elements like objects you can apply paths to
+can contain base HTML or refer to an element in the dom (for existing websites)
+don't add objects to the dom at all - just use Maps stored in the view - at most use dataset attributes
+use the MutationObserver/EventDispatcher/JsonML/Diff-Match-Patch/Operation Stack
+Throttles for sending messages, receiving messages, and acting upon messages (compose transforms before sending or after receiving)
+individual throttles for individual elements
+analogues to three.js and a-frame with Croquet objects on behalf of elements
+    every html element has a uuid and a croquetObject for Mutation/DOM/Input observations...

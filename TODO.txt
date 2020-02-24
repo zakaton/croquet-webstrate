@@ -1,0 +1,6 @@
+CoreOpApplier
+    https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/coreOpApplier.js
+NodeObjects
+    https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/nodeObjects.js
+DOMEvents
+    https://github.com/Webstrates/Webstrates/blob/master/client/webstrates/domEvents.js
