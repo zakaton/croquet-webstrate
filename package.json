@@ -19,6 +19,6 @@
   "homepage": "https://github.com/zakaton/croquet-webstrate#readme",
   "dependencies": {
     "jot": "git+https://github.com/joshdata/jot.git",
-    "three": "^0.113.2"
+    "three": "^0.125.0"
   }
 }
